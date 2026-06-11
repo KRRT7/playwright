@@ -35,6 +35,10 @@ inputs:
   flakiness-subscription-id:
     description: 'Azure Flakiness Dashboard Subscription ID'
     required: false
+  skip-build:
+    description: 'Download pre-built artifacts instead of running npm run build'
+    required: false
+    default: 'false'
 
 runs:
   using: composite
@@ -50,10 +54,16 @@ runs:
       shell: bash
       env:
         PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: 1
+    - name: Download build artifacts
+      if: ${{ inputs.skip-build == 'true' }}
+      uses: actions/download-artifact@v4
+      with:
+        name: build-output
     - run: |
         echo "::group::npm run build"
         npm run build
         echo "::endgroup::"
+      if: ${{ inputs.skip-build != 'true' }}
       shell: bash
     - run: |
         echo "::group::npx playwright install --with-deps"

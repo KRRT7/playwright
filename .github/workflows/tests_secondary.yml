@@ -5,6 +5,15 @@ on:
     branches:
       - main
       - release-*
+    paths-ignore:
+      - 'browser_patches/**'
+      - 'docs/**'
+      - 'packages/extension/**'
+      - 'packages/playwright-core/src/server/bidi/**'
+      - 'packages/playwright-core/src/tools/**'
+      - 'tests/bidi/**'
+      - 'tests/extension/**'
+      - 'tests/mcp/**'
   pull_request:
     types: [ labeled ]
     branches:
@@ -15,13 +24,37 @@ env:
   # Force terminal colors. @see https://www.npmjs.com/package/colors
   FORCE_COLOR: 1
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+  cancel-in-progress: true
+
 permissions:
   id-token: write   # This is required for OIDC login (azure/login) to succeed
   contents: read    # This is required for actions/checkout to succeed
 
 jobs:
+  build:
+    name: "Build"
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v6
+    - uses: actions/setup-node@v6
+      with:
+        node-version: 20
+        cache: 'npm'
+    - run: npm ci --no-fund
+      env:
+        PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: 1
+    - run: npm run build
+    - uses: actions/upload-artifact@v4
+      with:
+        name: build-output
+        path: packages/*/lib
+        retention-days: 1
+
   test_mac:
     name: ${{ matrix.os }} (${{ matrix.browser }})
+    needs: [build]
     environment: ${{ github.event_name == 'push' && 'allow-uploading-flakiness-results' || null }}
     strategy:
       fail-fast: false
@@ -41,12 +74,14 @@ jobs:
         browsers-to-install: ${{ matrix.browser }} chromium
         command: npm run test -- --project=${{ matrix.browser }}-*
         bot-name: "${{ matrix.browser }}-${{ matrix.os }}"
+        skip-build: 'true'
         flakiness-client-id: ${{ secrets.AZURE_FLAKINESS_DASHBOARD_CLIENT_ID }}
         flakiness-tenant-id: ${{ secrets.AZURE_FLAKINESS_DASHBOARD_TENANT_ID }}
         flakiness-subscription-id: ${{ secrets.AZURE_FLAKINESS_DASHBOARD_SUBSCRIPTION_ID }}
 
   test_win:
     name: "Windows"
+    needs: [build]
     environment: ${{ github.event_name == 'push' && 'allow-uploading-flakiness-results' || null }}
     strategy:
       fail-fast: false
@@ -60,12 +95,14 @@ jobs:
         browsers-to-install: ${{ matrix.browser }} chromium
         command: npm run test -- --project=${{ matrix.browser }}-* ${{ matrix.browser == 'firefox' && '--workers 1' || '' }}
         bot-name: "${{ matrix.browser }}-windows-latest"
+        skip-build: 'true'
         flakiness-client-id: ${{ secrets.AZURE_FLAKINESS_DASHBOARD_CLIENT_ID }}
         flakiness-tenant-id: ${{ secrets.AZURE_FLAKINESS_DASHBOARD_TENANT_ID }}
         flakiness-subscription-id: ${{ secrets.AZURE_FLAKINESS_DASHBOARD_SUBSCRIPTION_ID }}
 
   test-package-installations-other-node-versions:
     name: "Installation Test ${{ matrix.os }} (${{ matrix.node_version }})"
+    needs: [build]
     environment: ${{ github.event_name == 'push' && 'allow-uploading-flakiness-results' || null }}
     runs-on: ${{ matrix.os  }}
     strategy:
@@ -95,12 +132,14 @@ jobs:
         node-version: ${{ matrix.node_version }}
         command: npm run itest
         bot-name: "package-installations-${{ matrix.os }}-node${{ matrix.node_version }}"
+        skip-build: 'true'
         flakiness-client-id: ${{ secrets.AZURE_FLAKINESS_DASHBOARD_CLIENT_ID }}
         flakiness-tenant-id: ${{ secrets.AZURE_FLAKINESS_DASHBOARD_TENANT_ID }}
         flakiness-subscription-id: ${{ secrets.AZURE_FLAKINESS_DASHBOARD_SUBSCRIPTION_ID }}
 
   driver_linux:
     name: "Driver"
+    needs: [build]
     environment: ${{ github.event_name == 'push' && 'allow-uploading-flakiness-results' || null }}
     strategy:
       fail-fast: false
@@ -112,6 +151,7 @@ jobs:
         browsers-to-install: chromium
         command: npm run ctest
         bot-name: "driver"
+        skip-build: 'true'
         flakiness-client-id: ${{ secrets.AZURE_FLAKINESS_DASHBOARD_CLIENT_ID }}
         flakiness-tenant-id: ${{ secrets.AZURE_FLAKINESS_DASHBOARD_TENANT_ID }}
         flakiness-subscription-id: ${{ secrets.AZURE_FLAKINESS_DASHBOARD_SUBSCRIPTION_ID }}
@@ -120,6 +160,7 @@ jobs:
 
   tracing_linux:
     name: Tracing ${{ matrix.browser }}
+    needs: [build]
     environment: ${{ github.event_name == 'push' && 'allow-uploading-flakiness-results' || null }}
     strategy:
       fail-fast: false
@@ -140,6 +181,7 @@ jobs:
         browsers-to-install: ${{ matrix.browser }} chromium
         command: npm run test -- --project=${{ matrix.browser }}-*
         bot-name: "tracing-${{ matrix.browser }}"
+        skip-build: 'true'
         flakiness-client-id: ${{ secrets.AZURE_FLAKINESS_DASHBOARD_CLIENT_ID }}
         flakiness-tenant-id: ${{ secrets.AZURE_FLAKINESS_DASHBOARD_TENANT_ID }}
         flakiness-subscription-id: ${{ secrets.AZURE_FLAKINESS_DASHBOARD_SUBSCRIPTION_ID }}
@@ -148,6 +190,7 @@ jobs:
 
   test_chromium_channels:
     name: Test ${{ matrix.channel }} on ${{ matrix.runs-on }}
+    needs: [build]
     environment: ${{ github.event_name == 'push' && 'allow-uploading-flakiness-results' || null }}
     runs-on: ${{ matrix.runs-on }}
     strategy:
@@ -173,6 +216,7 @@ jobs:
         browsers-to-install: ${{ matrix.channel }}
         command: npm run ctest
         bot-name: ${{ matrix.channel }}-${{ matrix.runs-on }}
+        skip-build: 'true'
         flakiness-client-id: ${{ secrets.AZURE_FLAKINESS_DASHBOARD_CLIENT_ID }}
         flakiness-tenant-id: ${{ secrets.AZURE_FLAKINESS_DASHBOARD_TENANT_ID }}
         flakiness-subscription-id: ${{ secrets.AZURE_FLAKINESS_DASHBOARD_SUBSCRIPTION_ID }}
@@ -181,6 +225,7 @@ jobs:
 
   build-playwright-driver:
     name: "build-playwright-driver"
+    needs: [build]
     runs-on: ubuntu-24.04
     steps:
     - uses: actions/checkout@v6
@@ -189,11 +234,14 @@ jobs:
         node-version: 20
         cache: 'npm'
     - run: npm ci --no-fund
-    - run: npm run build
+    - uses: actions/download-artifact@v4
+      with:
+        name: build-output
     - run: utils/build/build-playwright-driver.sh
 
   test_android:
     name: Android
+    needs: [build]
     environment: ${{ github.event_name == 'push' && 'allow-uploading-flakiness-results' || null }}
     runs-on: playwright-x64-ubuntu24-64-core
     steps:
@@ -219,6 +267,7 @@ jobs:
         browsers-to-install: android
         command: npm run atest
         bot-name: "android"
+        skip-build: 'true'
         flakiness-client-id: ${{ secrets.AZURE_FLAKINESS_DASHBOARD_CLIENT_ID }}
         flakiness-tenant-id: ${{ secrets.AZURE_FLAKINESS_DASHBOARD_TENANT_ID }}
         flakiness-subscription-id: ${{ secrets.AZURE_FLAKINESS_DASHBOARD_SUBSCRIPTION_ID }}
