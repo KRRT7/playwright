@@ -25,6 +25,7 @@ jobs:
       with:
         node-version: 20
         registry-url: 'https://registry.npmjs.org'
+        cache: 'npm'
     # Ensure npm 11.5.1 or later is installed (for OIDC npm publishing)
     - name: Update npm
       run: npm install -g npm@latest
