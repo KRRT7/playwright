@@ -44,8 +44,6 @@ jobs:
     - uses: actions/setup-node@v6
       with:
         node-version: 22
-    - run: npm ci
-    - run: npm run build
     # Used as a Pull-through cache for the Docker images. Only available on the
     # main repo, where the secrets are present; forks fall back to Docker Hub.
     - name: Azure Login
