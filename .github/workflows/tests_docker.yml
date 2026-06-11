@@ -91,7 +91,7 @@ jobs:
             git config --global --add safe.directory /home/pwuser/playwright
           '
     - name: Run "npm ci" inside docker
-      run: docker exec --workdir /home/pwuser/playwright --env PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 docker-tests npm ci
+      run: docker exec --workdir /home/pwuser/playwright --env PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 docker-tests npm ci --no-fund
 
     - name: Run "npm run build" inside docker
       run: docker exec --workdir /home/pwuser/playwright docker-tests npm run build

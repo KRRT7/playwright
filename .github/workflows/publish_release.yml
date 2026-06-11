@@ -29,7 +29,7 @@ jobs:
     # Ensure npm 11.5.1 or later is installed (for OIDC npm publishing)
     - name: Update npm
       run: npm install -g npm@latest
-    - run: npm ci
+    - run: npm ci --no-fund
     - run: npm run build
 
     - name: "@next: publish with commit timestamp (triggered manually)"

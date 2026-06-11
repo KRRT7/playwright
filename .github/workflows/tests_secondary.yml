@@ -188,7 +188,7 @@ jobs:
       with:
         node-version: 20
         cache: 'npm'
-    - run: npm ci
+    - run: npm ci --no-fund
     - run: npm run build
     - run: utils/build/build-playwright-driver.sh
 

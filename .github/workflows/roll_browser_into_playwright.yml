@@ -25,7 +25,7 @@ jobs:
       with:
         node-version: 20
         cache: 'npm'
-    - run: npm ci
+    - run: npm ci --no-fund
     - run: npm run build
     - name: Install dependencies
       run: npx playwright install-deps
