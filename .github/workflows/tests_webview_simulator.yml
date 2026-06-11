@@ -63,7 +63,7 @@ jobs:
       - name: npm ci
         run: |
           echo "::group::npm ci"
-          npm ci --no-fund
+          npm ci
           echo "::endgroup::"
 
       - name: npm run build

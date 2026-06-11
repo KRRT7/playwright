@@ -23,8 +23,12 @@ env:
   FORCE_COLOR: 1
 
 jobs:
+  build:
+    uses: ./.github/workflows/build.yml
+
   test_components:
     name: ${{ matrix.os }} - Node.js ${{ matrix.node-version }}
+    needs: [build]
     strategy:
       fail-fast: false
       matrix:
@@ -43,6 +47,10 @@ jobs:
         node-version: ${{ matrix.node-version }}
         cache: 'npm'
     - run: npm ci --no-fund
-    - run: npm run build
+      env:
+        PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: 1
+    - uses: actions/download-artifact@v4
+      with:
+        name: build-output
     - run: npx playwright install --with-deps
     - run: npm run ct
