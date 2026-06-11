@@ -65,6 +65,15 @@ runs:
         echo "::endgroup::"
       if: ${{ inputs.skip-build != 'true' }}
       shell: bash
+    - uses: actions/cache@v4
+      with:
+        path: |
+          ~/.cache/ms-playwright
+          ~/Library/Caches/ms-playwright
+          ~/AppData/Local/ms-playwright
+        key: playwright-browsers-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+        restore-keys: |
+          playwright-browsers-${{ runner.os }}-
     - run: |
         echo "::group::npx playwright install --with-deps"
         npx playwright install --with-deps ${{ inputs.browsers-to-install }}
