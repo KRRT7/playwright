@@ -5,6 +5,7 @@ on:
 
 env:
   FORCE_COLOR: 1
+  PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: 1
 
 jobs:
   test_linux_docker:
@@ -43,8 +44,6 @@ jobs:
     - uses: actions/setup-node@v6
       with:
         node-version: 22
-      env:
-        PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: 1
     - run: npm ci
     - run: npm run build
     # Used as a Pull-through cache for the Docker images. Only available on the
