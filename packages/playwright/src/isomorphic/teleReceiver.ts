@@ -377,7 +377,7 @@ export class TeleReporterReceiver {
 
   private _onTestPaused(testId: string, resultId: string, errors: reporterTypes.TestError[]) {
     const test = this._tests.get(testId)!;
-    const result = test.results.find(r => r._id === resultId)!;
+    const result = test._findResultById(resultId)!;
 
     result.errors.push(...errors);
     result.error = result.errors[0];
@@ -388,7 +388,7 @@ export class TeleReporterReceiver {
     const test = this._tests.get(testEndPayload.testId)!;
     test.timeout = testEndPayload.timeout;
     test.expectedStatus = testEndPayload.expectedStatus;
-    const result = test.results.find(r => r._id === payload.id)!;
+    const result = test._findResultById(payload.id)!;
     result.duration = payload.duration;
     result.status = payload.status;
     result.errors.push(...payload.errors ?? []);
@@ -408,7 +408,7 @@ export class TeleReporterReceiver {
 
   private _onStepBegin(testId: string, resultId: string, payload: JsonTestStepStart) {
     const test = this._tests.get(testId)!;
-    const result = test.results.find(r => r._id === resultId)!;
+    const result = test._findResultById(resultId)!;
     const parentStep = payload.parentStepId ? result._stepMap.get(payload.parentStepId) : undefined;
 
     const location = this._absoluteLocation(payload.location);
@@ -423,7 +423,7 @@ export class TeleReporterReceiver {
 
   private _onStepEnd(testId: string, resultId: string, payload: JsonTestStepEnd) {
     const test = this._tests.get(testId)!;
-    const result = test.results.find(r => r._id === resultId)!;
+    const result = test._findResultById(resultId)!;
     const step = result._stepMap.get(payload.id)!;
     step._endPayload = payload;
     step.duration = payload.duration;
@@ -433,7 +433,7 @@ export class TeleReporterReceiver {
 
   private _onAttach(testId: string, resultId: string, attachments: JsonAttachment[]) {
     const test = this._tests.get(testId)!;
-    const result = test.results.find(r => r._id === resultId)!;
+    const result = test._findResultById(resultId)!;
     result.attachments.push(...attachments.map(a => ({
       name: a.name,
       contentType: a.contentType,
@@ -461,7 +461,7 @@ export class TeleReporterReceiver {
   private _onStdIO(type: JsonStdIOType, testId: string | undefined, resultId: string | undefined, data: string, isBase64: boolean) {
     const chunk = isBase64 ? ((globalThis as any).Buffer ? Buffer.from(data, 'base64') : atob(data)) : data;
     const test = testId ? this._tests.get(testId) : undefined;
-    const result = test && resultId ? test.results.find(r => r._id === resultId) : undefined;
+    const result = test && resultId ? test._findResultById(resultId) : undefined;
     if (type === 'stdout') {
       result?.stdout.push(chunk);
       this._reporter.onStdOut?.(chunk, test, result);
@@ -717,6 +717,11 @@ export class TeleTestCase implements reporterTypes.TestCase {
   ok(): boolean {
     const status = this.outcome();
     return status === 'expected' || status === 'flaky' || status === 'skipped';
+  }
+
+  _findResultById(id: string): TeleTestResult | undefined {
+    const lastResult = this.results[this.results.length - 1];
+    return lastResult?._id === id ? lastResult : this.results.find(r => r._id === id);
   }
 
   _createTestResult(id: string): TeleTestResult {
