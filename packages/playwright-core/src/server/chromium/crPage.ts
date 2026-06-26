@@ -545,9 +545,9 @@ class FrameSession {
       for (const initScript of this._crPage._page.allInitScripts())
         promises.push(this._evaluateOnNewDocument(initScript, 'main', true /* runImmediately */));
     }
-    promises.push(this._client.send('Runtime.runIfWaitingForDebugger'));
-    promises.push(this._firstNonInitialNavigationCommittedPromise);
     await Promise.all(promises);
+    await this._client.send('Runtime.runIfWaitingForDebugger');
+    await this._firstNonInitialNavigationCommittedPromise;
   }
 
   dispose() {
