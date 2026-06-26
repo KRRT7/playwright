@@ -626,16 +626,23 @@ export class TeleSuite implements reporterTypes.Suite {
 
   allTests(): reporterTypes.TestCase[] {
     const result: reporterTypes.TestCase[] = [];
-    const visit = (suite: reporterTypes.Suite) => {
-      for (const entry of suite.entries()) {
-        if (entry.type === 'test')
-          result.push(entry);
-        else
-          visit(entry);
-      }
-    };
-    visit(this);
+    this._forEachTest(test => result.push(test));
     return result;
+  }
+
+  _forEachTest(callback: (test: TeleTestCase) => void) {
+    for (const entry of this._entries) {
+      if (entry.type === 'test')
+        callback(entry);
+      else
+        entry._forEachTest(callback);
+    }
+  }
+
+  _allTestCount(): number {
+    let count = 0;
+    this._forEachTest(() => ++count);
+    return count;
   }
 
   titlePath(): string[] {
