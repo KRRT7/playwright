@@ -107,8 +107,17 @@ export class CRPage implements PageDelegate {
     }
 
     this._mainFrameSession._initialize(bits.hasUIWindow).then(
-        () => this._page.reportAsNew(this._opener?._page, undefined),
+        async () => {
+          if (this._page.mainFrame().url() === ':' || this._page.mainFrame().url() === '')
+            await this._runAllInitScriptsInCurrentDocument();
+          this._page.reportAsNew(this._opener?._page, undefined);
+        },
         error => this._page.reportAsNew(this._opener?._page, error));
+  }
+
+  private async _runAllInitScriptsInCurrentDocument() {
+    for (const initScript of this._page.allInitScripts())
+      await this._page.safeNonStallingEvaluateInAllFrames(initScript.source, 'main');
   }
 
   private async _forAllFrameSessions(cb: (frame: FrameSession) => Promise<any>) {
@@ -545,9 +554,9 @@ class FrameSession {
       for (const initScript of this._crPage._page.allInitScripts())
         promises.push(this._evaluateOnNewDocument(initScript, 'main', true /* runImmediately */));
     }
+    promises.push(this._client.send('Runtime.runIfWaitingForDebugger'));
+    promises.push(this._firstNonInitialNavigationCommittedPromise);
     await Promise.all(promises);
-    await this._client.send('Runtime.runIfWaitingForDebugger');
-    await this._firstNonInitialNavigationCommittedPromise;
   }
 
   dispose() {
