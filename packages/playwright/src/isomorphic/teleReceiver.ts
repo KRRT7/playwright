@@ -585,6 +585,8 @@ export class TeleSuite implements reporterTypes.Suite {
   location?: reporterTypes.Location;
   parent?: TeleSuite;
   _entries: (TeleSuite | TeleTestCase)[] = [];
+  private _suites: TeleSuite[] = [];
+  private _tests: TeleTestCase[] = [];
   _requireFile: string = '';
   _timeout: number | undefined;
   _retries: number | undefined;
@@ -604,11 +606,11 @@ export class TeleSuite implements reporterTypes.Suite {
   }
 
   get suites(): TeleSuite[] {
-    return this._entries.filter(e => e.type !== 'test') as TeleSuite[];
+    return this._suites;
   }
 
   get tests(): TeleTestCase[] {
-    return this._entries.filter(e => e.type === 'test') as TeleTestCase[];
+    return this._tests;
   }
 
   entries() {
@@ -651,6 +653,8 @@ export class TeleSuite implements reporterTypes.Suite {
 
   _clear() {
     this._entries = [];
+    this._suites = [];
+    this._tests = [];
     this._suiteByTitleMap.clear();
     this._testByTitleAndRepeatEachIndexMap.clear();
   }
@@ -658,12 +662,14 @@ export class TeleSuite implements reporterTypes.Suite {
   _addTest(test: TeleTestCase) {
     test.parent = this;
     this._entries.push(test);
+    this._tests.push(test);
     this._testByTitleAndRepeatEachIndexMap.set(test.title + '\x1e' + test.repeatEachIndex, test);
   }
 
   _addSuite(suite: TeleSuite) {
     suite.parent = this;
     this._entries.push(suite);
+    this._suites.push(suite);
     this._suiteByTitleMap.set(suite.title, suite);
   }
 }
