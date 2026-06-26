@@ -263,6 +263,7 @@ export class TeleReporterReceiver {
   private _reporter: ReporterV2;
   private _tests = new Map<string, TeleTestCase>();
   private _rootDir!: string;
+  private _absolutePathCache = new Map<string, string>();
   private _config!: reporterTypes.FullConfig;
 
   constructor(reporter: ReporterV2, options: TeleReporterReceiverOptions = {}) {
@@ -330,6 +331,7 @@ export class TeleReporterReceiver {
 
   private _onConfigure(config: JsonConfig) {
     this._rootDir = config.rootDir;
+    this._absolutePathCache.clear();
     this._config = this._parseConfig(config);
     this._reporter.onConfigure?.(this._config);
   }
@@ -576,7 +578,12 @@ export class TeleReporterReceiver {
   private _absolutePath(relativePath?: string): string | undefined {
     if (relativePath === undefined)
       return;
-    return this._options.resolvePath ? this._options.resolvePath(this._rootDir, relativePath) : this._rootDir + '/' + relativePath;
+    let result = this._absolutePathCache.get(relativePath);
+    if (result === undefined) {
+      result = this._options.resolvePath ? this._options.resolvePath(this._rootDir, relativePath) : this._rootDir + '/' + relativePath;
+      this._absolutePathCache.set(relativePath, result);
+    }
+    return result;
   }
 }
 
