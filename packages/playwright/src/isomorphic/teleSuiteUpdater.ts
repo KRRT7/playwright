@@ -19,6 +19,7 @@ import { statusEx } from './testTree';
 
 import type * as reporterTypes from '../../types/testReporter';
 import type { ReporterV2 } from '../reporters/reporterV2';
+import type { TeleTestResult } from './teleReceiver';
 
 export type TeleSuiteUpdaterProgress = {
   total: number;
@@ -55,7 +56,7 @@ export class TeleSuiteUpdater {
   private _lastRunReceiver: TeleReporterReceiver | undefined;
   private _lastRunTestCount = 0;
   private _options: TeleSuiteUpdaterOptions;
-  private _testResultsSnapshot: Map<string, reporterTypes.TestResult[]> | undefined;
+  private _testResultsSnapshot: Map<string, TeleTestResult[]> | undefined;
 
   constructor(options: TeleSuiteUpdaterOptions) {
     this._receiver = new TeleReporterReceiver(this._createReporter(), {
@@ -80,7 +81,7 @@ export class TeleSuiteUpdater {
         this._lastRunReceiver = new TeleReporterReceiver({
           version: () => 'v2',
           onBegin: (suite: reporterTypes.Suite) => {
-            this._lastRunTestCount = suite.allTests().length;
+            this._lastRunTestCount = (suite as TeleSuite)._allTestCount();
             this._lastRunReceiver = undefined;
           }
         }, {
@@ -97,8 +98,9 @@ export class TeleSuiteUpdater {
         // As soon as new test tree is built add previous results, before calling onUpdate
         // to avoid flashing empty results in the UI.
         if (this._testResultsSnapshot) {
-          for (const test of this.rootSuite.allTests())
+          this.rootSuite._forEachTest(test => {
             test.results = this._testResultsSnapshot?.get(test.id) || test.results;
+          });
           this._testResultsSnapshot = undefined;
         }
         this.progress.total = this._lastRunTestCount;
@@ -149,8 +151,8 @@ export class TeleSuiteUpdater {
   processListReport(report: any[]) {
     // Save test results and reset all projects, the results will be restored after
     // new project structure is built.
-    const tests = this.rootSuite?.allTests() || [];
-    this._testResultsSnapshot = new Map(tests.map(test => [test.id, test.results]));
+    this._testResultsSnapshot = new Map();
+    this.rootSuite?._forEachTest(test => this._testResultsSnapshot!.set(test.id, test.results));
     this._receiver.reset();
     for (const message of report)
       void this._receiver.dispatch(message);

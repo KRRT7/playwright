@@ -77,6 +77,17 @@ export class TestTree {
     };
     this._treeItemById.set(rootFolder, this.rootItem);
 
+    const groupItemsByTitle = new Map<GroupItem, Map<string, GroupItem>>();
+    const testCaseItemsByTitle = new Map<GroupItem, Map<string, TestCaseItem>>();
+    const lookupOrCreateMap = <T extends TreeItem>(map: Map<GroupItem, Map<string, T>>, parent: GroupItem): Map<string, T> => {
+      let result = map.get(parent);
+      if (!result) {
+        result = new Map();
+        map.set(parent, result);
+      }
+      return result;
+    };
+
     const visitSuite = (project: reporterTypes.FullProject, parentSuite: reporterTypes.Suite, parentGroup: GroupItem, mode: 'tests' | 'suites' | 'all') => {
       for (const suite of mode === 'tests' ? [] : parentSuite.suites) {
         if (!suite.title) {
@@ -85,7 +96,8 @@ export class TestTree {
           continue;
         }
 
-        let group = parentGroup.children.find(item => item.kind === 'group' && item.title === suite.title) as GroupItem | undefined;
+        const groupItems = lookupOrCreateMap(groupItemsByTitle, parentGroup);
+        let group = groupItems.get(suite.title);
         if (!group) {
           group = {
             kind: 'group',
@@ -100,13 +112,15 @@ export class TestTree {
             hasLoadErrors: false,
           };
           this._addChild(parentGroup, group);
+          groupItems.set(suite.title, group);
         }
         visitSuite(project, suite, group, 'all');
       }
 
       for (const test of mode === 'suites' ? [] : parentSuite.tests) {
         const title = test.title;
-        let testCaseItem = parentGroup.children.find(t => t.kind !== 'group' && t.title === title) as TestCaseItem;
+        const testCaseItems = lookupOrCreateMap(testCaseItemsByTitle, parentGroup);
+        let testCaseItem = testCaseItems.get(title);
         if (!testCaseItem) {
           testCaseItem = {
             kind: 'case',
@@ -123,6 +137,7 @@ export class TestTree {
             tags: test.tags,
           };
           this._addChild(parentGroup, testCaseItem);
+          testCaseItems.set(title, testCaseItem);
         }
 
         const result = test.results[0];
@@ -155,7 +170,7 @@ export class TestTree {
         };
         this._addChild(testCaseItem, testItem);
         this._treeItemByTestId.set(test.id, testItem);
-        testCaseItem.duration = (testCaseItem.children as TestItem[]).reduce((a, b) => a + b.duration, 0);
+        testCaseItem.duration += testItem.duration;
       }
     };
 
@@ -170,7 +185,7 @@ export class TestTree {
             visitSuite(projectSuite.project()!, fileSuite, defaultDescribeItem, 'tests');
           }
         } else {
-          const fileItem = this._fileItem(fileSuite.location!.file.split(pathSeparator), true);
+          const fileItem = this._fileItem(fileSuite.location!.file, true);
           visitSuite(projectSuite.project()!, fileSuite, fileItem, 'all');
         }
       }
@@ -179,7 +194,7 @@ export class TestTree {
     for (const loadError of loadErrors) {
       if (!loadError.location)
         continue;
-      const fileItem = this._fileItem(loadError.location.file.split(pathSeparator), true);
+      const fileItem = this._fileItem(loadError.location.file, true);
       fileItem.hasLoadErrors = true;
     }
   }
@@ -191,17 +206,39 @@ export class TestTree {
   }
 
   filterTree(filterText: string, statusFilters: Map<string, boolean>, runningTestIds: Set<string> | undefined) {
-    const tokens = filterText.trim().toLowerCase().split(' ');
-    const filtersStatuses = [...statusFilters.values()].some(Boolean);
+    const text = filterText.trim().toLowerCase();
+    const tokens = text ? text.split(' ') : [];
+    let filtersStatuses = false;
+    for (const enabled of statusFilters.values()) {
+      if (enabled) {
+        filtersStatuses = true;
+        break;
+      }
+    }
+    if (!tokens.length && !filtersStatuses)
+      return;
 
     const filter = (testCase: TestCaseItem) => {
-      const titleWithTags = [...testCase.tests[0].titlePath(), ...testCase.tests[0].tags].join(' ').toLowerCase();
-      if (!tokens.every(token => titleWithTags.includes(token)) && !testCase.tests.some(t => runningTestIds?.has(t.id)))
+      let matchesText = true;
+      if (tokens.length) {
+        const titleWithTags = [...testCase.tests[0].titlePath(), ...testCase.tests[0].tags].join(' ').toLowerCase();
+        matchesText = tokens.every(token => titleWithTags.includes(token));
+      }
+      if (!matchesText && !testCase.tests.some(t => runningTestIds?.has(t.id)))
         return false;
-      testCase.children = (testCase.children as TestItem[]).filter(test => {
-        return !filtersStatuses || runningTestIds?.has(test.test.id) || statusFilters.get(test.status);
-      });
-      testCase.tests = (testCase.children as TestItem[]).map(c => c.test);
+
+      if (filtersStatuses) {
+        const children: TestItem[] = [];
+        const tests: reporterTypes.TestCase[] = [];
+        for (const test of testCase.children as TestItem[]) {
+          if (runningTestIds?.has(test.test.id) || statusFilters.get(test.status)) {
+            children.push(test);
+            tests.push(test.test);
+          }
+        }
+        testCase.children = children;
+        testCase.tests = tests;
+      }
       return !!testCase.children.length;
     };
 
@@ -222,19 +259,21 @@ export class TestTree {
     visit(this.rootItem);
   }
 
-  private _fileItem(filePath: string[], isFile: boolean): GroupItem {
-    if (filePath.length === 0)
+  private _fileItem(fileName: string, isFile: boolean): GroupItem {
+    if (!fileName)
       return this.rootItem;
-    const fileName = filePath.join(this.pathSeparator);
     const existingFileItem = this._treeItemById.get(fileName);
     if (existingFileItem)
       return existingFileItem as GroupItem;
-    const parentFileItem = this._fileItem(filePath.slice(0, filePath.length - 1), false);
+    const parentFileName = this._parentFileName(fileName);
+    const parentFileItem = this._fileItem(parentFileName, false);
+    const titleStart = parentFileName ? parentFileName.length + this.pathSeparator.length :
+      (fileName.startsWith(this.pathSeparator) ? this.pathSeparator.length : 0);
     const fileItem: GroupItem = {
       kind: 'group',
       subKind: isFile ? 'file' : 'folder',
       id: fileName,
-      title: filePath[filePath.length - 1],
+      title: fileName.substring(titleStart),
       location: { file: fileName, line: 0, column: 0 },
       duration: 0,
       parent: parentFileItem,
@@ -244,6 +283,13 @@ export class TestTree {
     };
     this._addChild(parentFileItem, fileItem);
     return fileItem;
+  }
+
+  private _parentFileName(fileName: string): string {
+    const index = fileName.lastIndexOf(this.pathSeparator);
+    if (index <= 0)
+      return '';
+    return fileName.substring(0, index);
   }
 
   private _defaultDescribeItem(): GroupItem {

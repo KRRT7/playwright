@@ -107,8 +107,24 @@ export class CRPage implements PageDelegate {
     }
 
     this._mainFrameSession._initialize(bits.hasUIWindow).then(
-        () => this._page.reportAsNew(this._opener?._page, undefined),
+        async () => {
+          if (this._needsInitialEmptyDocumentInitScriptReplay())
+            await this._runAllInitScriptsInCurrentDocument();
+          this._page.reportAsNew(this._opener?._page, undefined);
+        },
         error => this._page.reportAsNew(this._opener?._page, error));
+  }
+
+  private _needsInitialEmptyDocumentInitScriptReplay() {
+    if (this._opener || process.platform !== 'linux' || process.arch !== 'arm64')
+      return false;
+    const url = this._page.mainFrame().url();
+    return url === ':' || url === '' || url === 'about:blank';
+  }
+
+  private async _runAllInitScriptsInCurrentDocument() {
+    for (const initScript of this._page.allInitScripts())
+      await this._page.safeNonStallingEvaluateInAllFrames(initScript.source, 'main');
   }
 
   private async _forAllFrameSessions(cb: (frame: FrameSession) => Promise<any>) {

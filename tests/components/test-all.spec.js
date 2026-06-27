@@ -50,6 +50,8 @@ async function run(command, args, folder) {
   child.stderr.on('data', data => process.stdout.write(data));
   process.on('exit', onExit);
   const code = await new Promise(f => child.on('close', f));
+  process.removeListener('exit', onExit);
+  activeChild = undefined;
   expect(code).toEqual(0);
 }
 

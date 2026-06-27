@@ -263,6 +263,7 @@ export class TeleReporterReceiver {
   private _reporter: ReporterV2;
   private _tests = new Map<string, TeleTestCase>();
   private _rootDir!: string;
+  private _absolutePathCache = new Map<string, string>();
   private _config!: reporterTypes.FullConfig;
 
   constructor(reporter: ReporterV2, options: TeleReporterReceiverOptions = {}) {
@@ -272,7 +273,7 @@ export class TeleReporterReceiver {
   }
 
   reset() {
-    this._rootSuite._entries = [];
+    this._rootSuite._clear();
     this._tests.clear();
   }
 
@@ -330,6 +331,7 @@ export class TeleReporterReceiver {
 
   private _onConfigure(config: JsonConfig) {
     this._rootDir = config.rootDir;
+    this._absolutePathCache.clear();
     this._config = this._parseConfig(config);
     this._reporter.onConfigure?.(this._config);
   }
@@ -375,7 +377,7 @@ export class TeleReporterReceiver {
 
   private _onTestPaused(testId: string, resultId: string, errors: reporterTypes.TestError[]) {
     const test = this._tests.get(testId)!;
-    const result = test.results.find(r => r._id === resultId)!;
+    const result = test._findResultById(resultId)!;
 
     result.errors.push(...errors);
     result.error = result.errors[0];
@@ -386,7 +388,7 @@ export class TeleReporterReceiver {
     const test = this._tests.get(testEndPayload.testId)!;
     test.timeout = testEndPayload.timeout;
     test.expectedStatus = testEndPayload.expectedStatus;
-    const result = test.results.find(r => r._id === payload.id)!;
+    const result = test._findResultById(payload.id)!;
     result.duration = payload.duration;
     result.status = payload.status;
     result.errors.push(...payload.errors ?? []);
@@ -406,7 +408,7 @@ export class TeleReporterReceiver {
 
   private _onStepBegin(testId: string, resultId: string, payload: JsonTestStepStart) {
     const test = this._tests.get(testId)!;
-    const result = test.results.find(r => r._id === resultId)!;
+    const result = test._findResultById(resultId)!;
     const parentStep = payload.parentStepId ? result._stepMap.get(payload.parentStepId) : undefined;
 
     const location = this._absoluteLocation(payload.location);
@@ -421,7 +423,7 @@ export class TeleReporterReceiver {
 
   private _onStepEnd(testId: string, resultId: string, payload: JsonTestStepEnd) {
     const test = this._tests.get(testId)!;
-    const result = test.results.find(r => r._id === resultId)!;
+    const result = test._findResultById(resultId)!;
     const step = result._stepMap.get(payload.id)!;
     step._endPayload = payload;
     step.duration = payload.duration;
@@ -431,7 +433,7 @@ export class TeleReporterReceiver {
 
   private _onAttach(testId: string, resultId: string, attachments: JsonAttachment[]) {
     const test = this._tests.get(testId)!;
-    const result = test.results.find(r => r._id === resultId)!;
+    const result = test._findResultById(resultId)!;
     result.attachments.push(...attachments.map(a => ({
       name: a.name,
       contentType: a.contentType,
@@ -459,7 +461,7 @@ export class TeleReporterReceiver {
   private _onStdIO(type: JsonStdIOType, testId: string | undefined, resultId: string | undefined, data: string, isBase64: boolean) {
     const chunk = isBase64 ? ((globalThis as any).Buffer ? Buffer.from(data, 'base64') : atob(data)) : data;
     const test = testId ? this._tests.get(testId) : undefined;
-    const result = test && resultId ? test.results.find(r => r._id === resultId) : undefined;
+    const result = test && resultId ? test._findResultById(resultId) : undefined;
     if (type === 'stdout') {
       result?.stdout.push(chunk);
       this._reporter.onStdOut?.(chunk, test, result);
@@ -519,7 +521,7 @@ export class TeleReporterReceiver {
   }
 
   private _mergeSuiteInto(jsonSuite: JsonSuite, parent: TeleSuite): void {
-    let targetSuite = parent.suites.find(s => s.title === jsonSuite.title);
+    let targetSuite = parent._findSuiteByTitle(jsonSuite.title);
     if (!targetSuite) {
       targetSuite = new TeleSuite(jsonSuite.title, parent.type === 'project' ? 'file' : 'describe');
       parent._addSuite(targetSuite);
@@ -534,7 +536,7 @@ export class TeleReporterReceiver {
   }
 
   private _mergeTestInto(jsonTest: JsonTestCase, parent: TeleSuite) {
-    let targetTest = this._options.mergeTestCases ? parent.tests.find(s => s.title === jsonTest.title && s.repeatEachIndex === jsonTest.repeatEachIndex) : undefined;
+    let targetTest = this._options.mergeTestCases ? parent._findTestByTitleAndRepeatEachIndex(jsonTest.title, jsonTest.repeatEachIndex) : undefined;
     if (!targetTest) {
       targetTest = new TeleTestCase(jsonTest.testId, jsonTest.title, this._absoluteLocation(jsonTest.location), jsonTest.repeatEachIndex);
       parent._addTest(targetTest);
@@ -576,7 +578,12 @@ export class TeleReporterReceiver {
   private _absolutePath(relativePath?: string): string | undefined {
     if (relativePath === undefined)
       return;
-    return this._options.resolvePath ? this._options.resolvePath(this._rootDir, relativePath) : this._rootDir + '/' + relativePath;
+    let result = this._absolutePathCache.get(relativePath);
+    if (result === undefined) {
+      result = this._options.resolvePath ? this._options.resolvePath(this._rootDir, relativePath) : this._rootDir + '/' + relativePath;
+      this._absolutePathCache.set(relativePath, result);
+    }
+    return result;
   }
 }
 
@@ -585,11 +592,15 @@ export class TeleSuite implements reporterTypes.Suite {
   location?: reporterTypes.Location;
   parent?: TeleSuite;
   _entries: (TeleSuite | TeleTestCase)[] = [];
+  private _suites: TeleSuite[] = [];
+  private _tests: TeleTestCase[] = [];
   _requireFile: string = '';
   _timeout: number | undefined;
   _retries: number | undefined;
   _project: TeleFullProject | undefined;
   _parallelMode: 'none' | 'default' | 'serial' | 'parallel' = 'none';
+  private _suiteByTitleMap = new Map<string, TeleSuite>();
+  private _testByTitleAndRepeatEachIndexMap = new Map<string, TeleTestCase>();
   private readonly _type: 'root' | 'project' | 'file' | 'describe';
 
   constructor(title: string, type: 'root' | 'project' | 'file' | 'describe') {
@@ -602,11 +613,11 @@ export class TeleSuite implements reporterTypes.Suite {
   }
 
   get suites(): TeleSuite[] {
-    return this._entries.filter(e => e.type !== 'test') as TeleSuite[];
+    return this._suites;
   }
 
   get tests(): TeleTestCase[] {
-    return this._entries.filter(e => e.type === 'test') as TeleTestCase[];
+    return this._tests;
   }
 
   entries() {
@@ -615,16 +626,23 @@ export class TeleSuite implements reporterTypes.Suite {
 
   allTests(): reporterTypes.TestCase[] {
     const result: reporterTypes.TestCase[] = [];
-    const visit = (suite: reporterTypes.Suite) => {
-      for (const entry of suite.entries()) {
-        if (entry.type === 'test')
-          result.push(entry);
-        else
-          visit(entry);
-      }
-    };
-    visit(this);
+    this._forEachTest(test => result.push(test));
     return result;
+  }
+
+  _forEachTest(callback: (test: TeleTestCase) => void) {
+    for (const entry of this._entries) {
+      if (entry.type === 'test')
+        callback(entry);
+      else
+        entry._forEachTest(callback);
+    }
+  }
+
+  _allTestCount(): number {
+    let count = 0;
+    this._forEachTest(() => ++count);
+    return count;
   }
 
   titlePath(): string[] {
@@ -639,14 +657,34 @@ export class TeleSuite implements reporterTypes.Suite {
     return this._project ?? this.parent?.project();
   }
 
+  _findSuiteByTitle(title: string): TeleSuite | undefined {
+    return this._suiteByTitleMap.get(title);
+  }
+
+  _findTestByTitleAndRepeatEachIndex(title: string, repeatEachIndex: number): TeleTestCase | undefined {
+    return this._testByTitleAndRepeatEachIndexMap.get(title + '\x1e' + repeatEachIndex);
+  }
+
+  _clear() {
+    this._entries = [];
+    this._suites = [];
+    this._tests = [];
+    this._suiteByTitleMap.clear();
+    this._testByTitleAndRepeatEachIndexMap.clear();
+  }
+
   _addTest(test: TeleTestCase) {
     test.parent = this;
     this._entries.push(test);
+    this._tests.push(test);
+    this._testByTitleAndRepeatEachIndexMap.set(test.title + '\x1e' + test.repeatEachIndex, test);
   }
 
   _addSuite(suite: TeleSuite) {
     suite.parent = this;
     this._entries.push(suite);
+    this._suites.push(suite);
+    this._suiteByTitleMap.set(suite.title, suite);
   }
 }
 
@@ -686,6 +724,11 @@ export class TeleTestCase implements reporterTypes.TestCase {
   ok(): boolean {
     const status = this.outcome();
     return status === 'expected' || status === 'flaky' || status === 'skipped';
+  }
+
+  _findResultById(id: string): TeleTestResult | undefined {
+    const lastResult = this.results[this.results.length - 1];
+    return lastResult?._id === id ? lastResult : this.results.find(r => r._id === id);
   }
 
   _createTestResult(id: string): TeleTestResult {
