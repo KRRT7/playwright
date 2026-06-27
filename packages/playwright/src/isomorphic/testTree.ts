@@ -185,7 +185,7 @@ export class TestTree {
             visitSuite(projectSuite.project()!, fileSuite, defaultDescribeItem, 'tests');
           }
         } else {
-          const fileItem = this._fileItem(fileSuite.location!.file.split(pathSeparator), true);
+          const fileItem = this._fileItem(fileSuite.location!.file, true);
           visitSuite(projectSuite.project()!, fileSuite, fileItem, 'all');
         }
       }
@@ -194,7 +194,7 @@ export class TestTree {
     for (const loadError of loadErrors) {
       if (!loadError.location)
         continue;
-      const fileItem = this._fileItem(loadError.location.file.split(pathSeparator), true);
+      const fileItem = this._fileItem(loadError.location.file, true);
       fileItem.hasLoadErrors = true;
     }
   }
@@ -237,19 +237,21 @@ export class TestTree {
     visit(this.rootItem);
   }
 
-  private _fileItem(filePath: string[], isFile: boolean): GroupItem {
-    if (filePath.length === 0)
+  private _fileItem(fileName: string, isFile: boolean): GroupItem {
+    if (!fileName)
       return this.rootItem;
-    const fileName = filePath.join(this.pathSeparator);
     const existingFileItem = this._treeItemById.get(fileName);
     if (existingFileItem)
       return existingFileItem as GroupItem;
-    const parentFileItem = this._fileItem(filePath.slice(0, filePath.length - 1), false);
+    const parentFileName = this._parentFileName(fileName);
+    const parentFileItem = this._fileItem(parentFileName, false);
+    const titleStart = parentFileName ? parentFileName.length + this.pathSeparator.length :
+      (fileName.startsWith(this.pathSeparator) ? this.pathSeparator.length : 0);
     const fileItem: GroupItem = {
       kind: 'group',
       subKind: isFile ? 'file' : 'folder',
       id: fileName,
-      title: filePath[filePath.length - 1],
+      title: fileName.substring(titleStart),
       location: { file: fileName, line: 0, column: 0 },
       duration: 0,
       parent: parentFileItem,
@@ -259,6 +261,13 @@ export class TestTree {
     };
     this._addChild(parentFileItem, fileItem);
     return fileItem;
+  }
+
+  private _parentFileName(fileName: string): string {
+    const index = fileName.lastIndexOf(this.pathSeparator);
+    if (index <= 0)
+      return '';
+    return fileName.substring(0, index);
   }
 
   private _defaultDescribeItem(): GroupItem {
