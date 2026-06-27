@@ -206,17 +206,39 @@ export class TestTree {
   }
 
   filterTree(filterText: string, statusFilters: Map<string, boolean>, runningTestIds: Set<string> | undefined) {
-    const tokens = filterText.trim().toLowerCase().split(' ');
-    const filtersStatuses = [...statusFilters.values()].some(Boolean);
+    const text = filterText.trim().toLowerCase();
+    const tokens = text ? text.split(' ') : [];
+    let filtersStatuses = false;
+    for (const enabled of statusFilters.values()) {
+      if (enabled) {
+        filtersStatuses = true;
+        break;
+      }
+    }
+    if (!tokens.length && !filtersStatuses)
+      return;
 
     const filter = (testCase: TestCaseItem) => {
-      const titleWithTags = [...testCase.tests[0].titlePath(), ...testCase.tests[0].tags].join(' ').toLowerCase();
-      if (!tokens.every(token => titleWithTags.includes(token)) && !testCase.tests.some(t => runningTestIds?.has(t.id)))
+      let matchesText = true;
+      if (tokens.length) {
+        const titleWithTags = [...testCase.tests[0].titlePath(), ...testCase.tests[0].tags].join(' ').toLowerCase();
+        matchesText = tokens.every(token => titleWithTags.includes(token));
+      }
+      if (!matchesText && !testCase.tests.some(t => runningTestIds?.has(t.id)))
         return false;
-      testCase.children = (testCase.children as TestItem[]).filter(test => {
-        return !filtersStatuses || runningTestIds?.has(test.test.id) || statusFilters.get(test.status);
-      });
-      testCase.tests = (testCase.children as TestItem[]).map(c => c.test);
+
+      if (filtersStatuses) {
+        const children: TestItem[] = [];
+        const tests: reporterTypes.TestCase[] = [];
+        for (const test of testCase.children as TestItem[]) {
+          if (runningTestIds?.has(test.test.id) || statusFilters.get(test.status)) {
+            children.push(test);
+            tests.push(test.test);
+          }
+        }
+        testCase.children = children;
+        testCase.tests = tests;
+      }
       return !!testCase.children.length;
     };
 
